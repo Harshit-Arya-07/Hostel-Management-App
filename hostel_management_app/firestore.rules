@@ -1,0 +1,168 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn() && (
+        request.auth.token.admin == true ||
+        request.auth.token.role == 'admin'
+      );
+    }
+
+    function isSelf(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    function hasOnlyKeys(keys) {
+      return request.resource.data.keys().hasOnly(keys);
+    }
+
+    function userDoc(userId) {
+      return get(/databases/$(database)/documents/users/$(userId));
+    }
+
+    function isOwnRoom() {
+      return signedIn()
+        && resource.data.assignedStudentIds is list
+        && resource.data.assignedStudentIds.hasAny([request.auth.uid]);
+    }
+
+    function isOwnStudentRecord() {
+      return signedIn() && resource.data.studentId == request.auth.uid;
+    }
+
+    match /users/{userId} {
+      allow get: if isAdmin() || isSelf(userId);
+      allow list: if isAdmin();
+
+      allow create: if isAdmin() || (
+        isSelf(userId)
+        && hasOnlyKeys([
+          'uid',
+          'name',
+          'email',
+          'phone',
+          'role',
+          'roomNumber',
+          'hostelBlock',
+          'profileImageUrl',
+          'createdAt'
+        ])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.role == 'student'
+        && request.resource.data.name is string
+        && request.resource.data.phone is string
+        && request.resource.data.roomNumber is string
+        && request.resource.data.hostelBlock is string
+      );
+
+      allow update: if isAdmin() || (
+        isSelf(userId)
+        && resource.data.uid == request.auth.uid
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.email == resource.data.email
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.name is string
+        && request.resource.data.phone is string
+        && request.resource.data.roomNumber is string
+        && request.resource.data.hostelBlock is string
+        && (
+          request.resource.data.profileImageUrl is string
+          || request.resource.data.profileImageUrl == null
+        )
+      );
+
+      allow delete: if isAdmin();
+    }
+
+    match /rooms/{roomId} {
+      allow get, list: if isAdmin() || isOwnRoom();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /fees/{feeId} {
+      allow get, list: if isAdmin() || (signedIn() && resource.data.studentId == request.auth.uid);
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /complaints/{complaintId} {
+      allow get, list: if isAdmin() || (signedIn() && resource.data.studentId == request.auth.uid);
+
+      allow create: if signedIn()
+        && hasOnlyKeys([
+          'studentId',
+          'studentName',
+          'roomNumber',
+          'title',
+          'description',
+          'category',
+          'status',
+          'priority',
+          'adminResponse',
+          'createdAt',
+          'resolvedAt'
+        ])
+        && request.resource.data.studentId == request.auth.uid
+        && request.resource.data.studentName is string
+        && request.resource.data.roomNumber is string
+        && request.resource.data.title is string
+        && request.resource.data.description is string
+        && request.resource.data.category is string
+        && request.resource.data.status == 'pending'
+        && request.resource.data.priority is string
+        && request.resource.data.adminResponse == null
+        && request.resource.data.resolvedAt == null;
+
+      allow update: if isAdmin();
+
+      allow delete: if isAdmin() || (
+        signedIn()
+        && resource.data.studentId == request.auth.uid
+        && resource.data.status == 'pending'
+      );
+    }
+
+    match /leaves/{leaveId} {
+      allow get, list: if isAdmin() || (signedIn() && resource.data.studentId == request.auth.uid);
+
+      allow create: if signedIn()
+        && hasOnlyKeys([
+          'studentId',
+          'studentName',
+          'roomNumber',
+          'reason',
+          'leaveType',
+          'status',
+          'adminRemarks',
+          'fromDate',
+          'toDate',
+          'createdAt'
+        ])
+        && request.resource.data.studentId == request.auth.uid
+        && request.resource.data.studentName is string
+        && request.resource.data.roomNumber is string
+        && request.resource.data.reason is string
+        && request.resource.data.leaveType is string
+        && request.resource.data.status == 'pending'
+        && request.resource.data.adminRemarks == null;
+
+      allow update: if isAdmin();
+
+      allow delete: if isAdmin() || (
+        signedIn()
+        && resource.data.studentId == request.auth.uid
+        && resource.data.status == 'pending'
+      );
+    }
+
+    match /{document=**} {
+      allow read, write: if isAdmin();
+    }
+  }
+}
